@@ -15,7 +15,7 @@ import {
   type Usage
 } from '../lib/anthropic/types'
 import type { SearchActivity } from '../lib/anthropic/accumulate'
-import type { PageExtract } from '../lib/messages'
+import { SESSION_HANDOFF_KEY, type HandoffPayload, type PageExtract } from '../lib/messages'
 import { readActivePage, type PageContextState } from '../lib/pagecontext'
 import { hostnameOf } from '../lib/settings'
 
@@ -324,6 +324,35 @@ export const useStore = create<PanelStore>((set, get) => {
       chrome.tabs.onUpdated.addListener((_id, info, tab) => {
         if (tab.active && (info.status === 'complete' || info.title !== undefined)) {
           void get().refreshPageContext()
+        }
+      })
+      const applyHandoff = (payload: HandoffPayload) => {
+        if (!payload.autoSend && payload.assistantText === null) {
+          get().newChat()
+          set({ composerText: payload.userText, view: 'chat' })
+          return
+        }
+        void get().seedConversation(
+          payload.userText,
+          payload.assistantText,
+          isModelId(payload.model) ? payload.model : get().model,
+          payload.title,
+          payload.autoSend
+        )
+      }
+      const pending = await chrome.storage.session.get(SESSION_HANDOFF_KEY)
+      const initial = pending[SESSION_HANDOFF_KEY] as HandoffPayload | undefined
+      if (initial) {
+        void chrome.storage.session.remove(SESSION_HANDOFF_KEY)
+        applyHandoff(initial)
+      }
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'session') return
+        const change = changes[SESSION_HANDOFF_KEY]
+        const payload = change?.newValue as HandoffPayload | undefined
+        if (payload) {
+          void chrome.storage.session.remove(SESSION_HANDOFF_KEY)
+          applyHandoff(payload)
         }
       })
     },
@@ -668,7 +697,7 @@ export const useStore = create<PanelStore>((set, get) => {
         rows.push(assistantRow)
       }
       set({ conversation: conv, messages: rows, view: 'chat', model })
-      if (autoSend || !assistantText) {
+      if (autoSend) {
         const assistantRow: MessageRow = {
           id: newId(),
           conversationId: conv.id,

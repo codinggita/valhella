@@ -1,5 +1,6 @@
 import { isTabMessage } from '../lib/messages'
 import { extractPage } from './extractor'
+import { initPopup } from './popup'
 
 declare global {
   interface Window {
@@ -17,6 +18,8 @@ function init(): void {
       sendResponse(extractPage())
     }
   })
+
+  initPopup()
 }
 
 init()

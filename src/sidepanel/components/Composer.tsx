@@ -1,9 +1,60 @@
 import { useEffect, useRef } from 'react'
+import { resolveActions } from '../../lib/actions'
 import Icon from '../../ui/Icon'
 import IconButton from '../../ui/IconButton'
+import Menu, { type MenuEntry } from '../../ui/Menu'
 import ContextChip from './ContextChip'
 import ModelPicker from './ModelPicker'
 import { useStore } from '../store'
+
+function QuickActionsMenu() {
+  const settings = useStore((s) => s.settings)
+  const composerText = useStore((s) => s.composerText)
+  const pageReady = useStore((s) => s.pageContext.status === 'ready')
+  const streaming = useStore((s) => s.streaming !== null)
+  const send = useStore((s) => s.send)
+  const setComposerText = useStore((s) => s.setComposerText)
+  if (!settings) return null
+  const hasTarget = composerText.trim().length > 0 || pageReady
+  const entries: MenuEntry[] = [
+    { title: composerText.trim() ? 'Act on your draft' : pageReady ? 'Act on this page' : 'Quick actions' },
+    ...resolveActions(settings).map((a) => ({
+      id: a.id,
+      label: a.name,
+      icon: a.icon,
+      disabled: !hasTarget || streaming
+    }))
+  ]
+  return (
+    <Menu
+      entries={entries}
+      onSelect={(id) => {
+        const action = resolveActions(settings).find((a) => a.id === id)
+        if (!action || streaming || !hasTarget) return
+        const draft = composerText.trim()
+        if (draft) {
+          setComposerText('')
+          void send(`${action.instruction}\n\n<text>\n${draft}\n</text>`)
+        } else {
+          void send(action.instruction)
+        }
+      }}
+      trigger={(p) => (
+        <button
+          ref={p.ref}
+          onClick={p.onClick}
+          aria-expanded={p['aria-expanded']}
+          aria-haspopup={p['aria-haspopup']}
+          className="iconbtn"
+          aria-label="Quick actions"
+          disabled={!hasTarget}
+        >
+          <Icon name="sparkle" size={15} />
+        </button>
+      )}
+    />
+  )
+}
 
 export default function Composer() {
   const composerText = useStore((s) => s.composerText)
@@ -60,6 +111,7 @@ export default function Composer() {
           }}
         />
         <div className="composer-row">
+          <QuickActionsMenu />
           <ModelPicker />
           <span className="composer-spacer" />
           {streaming ? (

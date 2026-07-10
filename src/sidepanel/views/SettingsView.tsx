@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { db } from '../../lib/db'
+import { db, newId } from '../../lib/db'
 import { allDataToJson, downloadFile } from '../../lib/export'
-import { updateSettings, type ThemeChoice } from '../../lib/settings'
+import { updateSettings, type CustomAction, type Settings, type ThemeChoice } from '../../lib/settings'
 import { validateKey } from '../../lib/anthropic/client'
 import Button from '../../ui/Button'
 import Dialog from '../../ui/Dialog'
 import Icon, { type IconName } from '../../ui/Icon'
 import IconButton from '../../ui/IconButton'
-import { Input } from '../../ui/Input'
+import { Field, Input, Textarea } from '../../ui/Input'
+import Toggle from '../../ui/Toggle'
 import { useStore } from '../store'
 
 function maskKey(key: string): string {
@@ -97,6 +98,109 @@ function Section({ title, icon, children }: { title: string; icon: IconName; chi
   )
 }
 
+function CustomActionsEditor({ settings }: { settings: Settings }) {
+  const [editing, setEditing] = useState<CustomAction | null>(null)
+  const [name, setName] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  const startAdd = () => {
+    setAdding(true)
+    setEditing(null)
+    setName('')
+    setPrompt('')
+  }
+
+  const startEdit = (a: CustomAction) => {
+    setEditing(a)
+    setAdding(false)
+    setName(a.name)
+    setPrompt(a.prompt)
+  }
+
+  const cancel = () => {
+    setAdding(false)
+    setEditing(null)
+  }
+
+  const save = () => {
+    const n = name.trim()
+    const p = prompt.trim()
+    if (!n || !p) return
+    let next: CustomAction[]
+    if (editing) {
+      next = settings.customActions.map((a) => (a.id === editing.id ? { ...a, name: n, prompt: p } : a))
+    } else {
+      next = [...settings.customActions, { id: newId(), name: n, prompt: p }]
+    }
+    void updateSettings({ customActions: next })
+    cancel()
+  }
+
+  const remove = (id: string) => {
+    void updateSettings({ customActions: settings.customActions.filter((a) => a.id !== id) })
+    if (editing?.id === id) cancel()
+  }
+
+  const formOpen = adding || editing !== null
+
+  return (
+    <>
+      <p className="set-note">
+        Summarize, Explain, Simplify, Translate, and Improve writing are built in. Your own actions appear next to
+        them — in the selection popup, the composer, and the right-click menu.
+      </p>
+      {settings.customActions.length > 0 && (
+        <ul className="set-sitelist">
+          {settings.customActions.map((a) => (
+            <li key={a.id} className="set-site">
+              <div className="set-action-main">
+                <span className="set-action-name">{a.name}</span>
+                <span className="set-action-prompt">{a.prompt}</span>
+              </div>
+              <IconButton icon="pencil" label={`Edit ${a.name}`} size="sm" onClick={() => startEdit(a)} />
+              <IconButton icon="trash" label={`Delete ${a.name}`} size="sm" onClick={() => remove(a.id)} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {formOpen ? (
+        <div className="set-actionform">
+          <Field label="Name">
+            <Input
+              autoFocus
+              placeholder="Make it a haiku"
+              value={name}
+              maxLength={28}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <Field label="Prompt" hint="Runs on the highlighted text. Write {text} to place it yourself.">
+            <Textarea
+              placeholder="Rewrite the text as a haiku that keeps its meaning."
+              value={prompt}
+              rows={3}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+          </Field>
+          <div className="set-actionform-row">
+            <Button variant="ghost" onClick={cancel}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={!name.trim() || !prompt.trim()} onClick={save}>
+              {editing ? 'Save changes' : 'Add action'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" icon="plus" onClick={startAdd} className="set-addaction">
+          New action
+        </Button>
+      )}
+    </>
+  )
+}
+
 export default function SettingsView() {
   const settings = useStore((s) => s.settings)
   const [editingKey, setEditingKey] = useState(false)
@@ -167,6 +271,46 @@ export default function SettingsView() {
             </button>
           ))}
         </div>
+      </Section>
+
+      <Section title="Quick actions" icon="sparkle">
+        <CustomActionsEditor settings={settings} />
+      </Section>
+
+      <Section title="Selection popup" icon="chat">
+        <div className="set-row">
+          <div className="set-row-main">
+            <div className="set-row-title">Show on highlighted text</div>
+            <div className="set-row-sub">A quiet pill with quick actions appears when you select text on a page.</div>
+          </div>
+          <Toggle
+            checked={settings.selectionPopupEnabled}
+            onChange={(v) => void updateSettings({ selectionPopupEnabled: v })}
+            label="Selection popup"
+          />
+        </div>
+        {settings.selectionPopupBlocklist.length > 0 && (
+          <>
+            <p className="set-note">Hidden on these sites:</p>
+            <ul className="set-sitelist">
+              {settings.selectionPopupBlocklist.map((host) => (
+                <li key={host} className="set-site">
+                  <span className="set-site-host">{host}</span>
+                  <IconButton
+                    icon="x"
+                    label={`Show popup on ${host}`}
+                    size="sm"
+                    onClick={() =>
+                      void updateSettings({
+                        selectionPopupBlocklist: settings.selectionPopupBlocklist.filter((h) => h !== host)
+                      })
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </Section>
 
       <Section title="Sites" icon="globe">

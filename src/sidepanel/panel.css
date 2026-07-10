@@ -1117,6 +1117,49 @@
   white-space: nowrap;
 }
 
+.set-action-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0;
+}
+
+.set-action-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.set-action-prompt {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.set-actionform {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--paper-raised);
+  padding: 12px;
+}
+
+.set-actionform-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.set-addaction {
+  align-self: flex-start;
+}
+
 .seg {
   display: inline-flex;
   gap: 2px;
