@@ -16,15 +16,11 @@ import {
 } from '../lib/anthropic/types'
 import type { SearchActivity } from '../lib/anthropic/accumulate'
 import type { PageExtract } from '../lib/messages'
+import { readActivePage, type PageContextState } from '../lib/pagecontext'
+import { hostnameOf } from '../lib/settings'
 
 export type View = 'chat' | 'history' | 'settings'
-
-export type PageContextState =
-  | { status: 'none' }
-  | { status: 'ready'; page: PageExtract }
-  | { status: 'removed'; page: PageExtract }
-  | { status: 'blocked'; host: string }
-  | { status: 'unreadable'; title: string }
+export type { PageContextState }
 
 export interface Attachment {
   id: string
@@ -67,9 +63,11 @@ interface PanelStore {
   continueLast(): Promise<void>
   startEditLast(): void
   cancelEdit(): void
-  setPageContext(pc: PageContextState): void
+  refreshPageContext(): Promise<void>
   removePageContext(): void
   restorePageContext(): void
+  blockCurrentSite(): Promise<void>
+  unblockSite(host: string): Promise<void>
   addAttachment(a: Attachment): void
   removeAttachment(id: string): void
   deleteConversation(id: string): Promise<void>
@@ -81,6 +79,7 @@ interface PanelStore {
 let controller: AbortController | null = null
 let latestDraft: AnyBlock[] = []
 let flushScheduled = false
+let contextSeq = 0
 
 function findLastIndex<T>(arr: T[], pred: (t: T) => boolean): number {
   for (let i = arr.length - 1; i >= 0; i--) {
@@ -314,9 +313,19 @@ export const useStore = create<PanelStore>((set, get) => {
         const prev = get().settings
         set({ settings: s })
         if (prev && prev.apiKey !== s.apiKey && s.apiKey) set({ keyInvalid: false })
+        if (prev && prev.siteContextBlocklist.join() !== s.siteContextBlocklist.join()) {
+          void get().refreshPageContext()
+        }
       })
       window.addEventListener('online', () => set({ offline: false }))
       window.addEventListener('offline', () => set({ offline: true }))
+      void get().refreshPageContext()
+      chrome.tabs.onActivated.addListener(() => void get().refreshPageContext())
+      chrome.tabs.onUpdated.addListener((_id, info, tab) => {
+        if (tab.active && (info.status === 'complete' || info.title !== undefined)) {
+          void get().refreshPageContext()
+        }
+      })
     },
 
     setView(view) {
@@ -410,7 +419,16 @@ export const useStore = create<PanelStore>((set, get) => {
         await db.conversations.put(conv)
       }
 
-      const context = s.pageContext.status === 'ready' ? s.pageContext.page : null
+      let context: PageExtract | null = null
+      if (s.pageContext.status === 'ready') {
+        const fresh = await readActivePage(s.settings)
+        if (fresh.status === 'ready') {
+          context = fresh.page
+          set({ pageContext: fresh })
+        } else {
+          context = s.pageContext.page
+        }
+      }
       const userBlocks: AnyBlock[] = []
       for (const a of s.attachments) {
         userBlocks.push({ type: 'image', source: { type: 'base64', media_type: a.mediaType, data: a.data } })
@@ -513,18 +531,53 @@ export const useStore = create<PanelStore>((set, get) => {
       set({ composerText: '', editing: false })
     },
 
-    setPageContext(pageContext) {
-      set({ pageContext })
+    async refreshPageContext() {
+      const settings = get().settings
+      if (!settings) return
+      const seq = ++contextSeq
+      const next = await readActivePage(settings)
+      if (seq !== contextSeq) return
+      const current = get().pageContext
+      if (
+        current.status === 'removed' &&
+        next.status === 'ready' &&
+        next.page.url === current.page.url
+      ) {
+        set({ pageContext: { status: 'removed', page: next.page, favIconUrl: next.favIconUrl } })
+        return
+      }
+      set({ pageContext: next })
     },
 
     removePageContext() {
       const pc = get().pageContext
-      if (pc.status === 'ready') set({ pageContext: { status: 'removed', page: pc.page } })
+      if (pc.status === 'ready') {
+        set({ pageContext: { status: 'removed', page: pc.page, favIconUrl: pc.favIconUrl } })
+      }
     },
 
     restorePageContext() {
       const pc = get().pageContext
-      if (pc.status === 'removed') set({ pageContext: { status: 'ready', page: pc.page } })
+      if (pc.status === 'removed') {
+        set({ pageContext: { status: 'ready', page: pc.page, favIconUrl: pc.favIconUrl } })
+      }
+    },
+
+    async blockCurrentSite() {
+      const s = get().settings
+      const pc = get().pageContext
+      if (!s || pc.status !== 'ready') return
+      const host = hostnameOf(pc.page.url)
+      if (!host || s.siteContextBlocklist.includes(host)) return
+      await updateSettings({ siteContextBlocklist: [...s.siteContextBlocklist, host] })
+      set({ pageContext: { status: 'blocked', host } })
+    },
+
+    async unblockSite(host) {
+      const s = get().settings
+      if (!s) return
+      await updateSettings({ siteContextBlocklist: s.siteContextBlocklist.filter((h) => h !== host) })
+      void get().refreshPageContext()
     },
 
     addAttachment(a) {

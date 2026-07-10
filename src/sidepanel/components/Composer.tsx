@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import Icon from '../../ui/Icon'
 import IconButton from '../../ui/IconButton'
+import ContextChip from './ContextChip'
 import ModelPicker from './ModelPicker'
 import { useStore } from '../store'
 
@@ -41,6 +42,7 @@ export default function Composer() {
         </div>
       )}
       <div className="composer-box">
+        <ContextChip />
         <textarea
           ref={taRef}
           className="composer-input"
