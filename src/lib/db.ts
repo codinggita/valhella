@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type { ModelId } from './models'
 import type { AnyBlock, StopReason, Usage } from './anthropic/types'
 import type { AgentStep } from './agent/types'
+import type { ApiErrorCode } from './messages'
 
 export interface ConversationRow {
   id: string
@@ -25,7 +26,8 @@ export interface MessageRow {
   stopReason: StopReason
   kind: 'chat' | 'agent'
   agentSteps: AgentStep[] | null
-  error: string | null
+  error: { code: ApiErrorCode; message: string } | null
+  stopped: boolean
   contextTitle: string | null
   contextUrl: string | null
 }
