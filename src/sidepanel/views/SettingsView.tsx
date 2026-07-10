@@ -6,6 +6,7 @@ import { validateKey } from '../../lib/anthropic/client'
 import Button from '../../ui/Button'
 import Dialog from '../../ui/Dialog'
 import Icon, { type IconName } from '../../ui/Icon'
+import IconButton from '../../ui/IconButton'
 import { Input } from '../../ui/Input'
 import { useStore } from '../store'
 
@@ -166,6 +167,38 @@ export default function SettingsView() {
             </button>
           ))}
         </div>
+      </Section>
+
+      <Section title="Sites" icon="globe">
+        <div className="set-row">
+          <div className="set-row-main">
+            <div className="set-row-title">Page context blocklist</div>
+            <div className="set-row-sub">Briefly never attaches page content on these sites.</div>
+          </div>
+        </div>
+        {settings.siteContextBlocklist.length === 0 ? (
+          <p className="set-note">
+            No sites blocked. Use the context chip's menu in the composer to add the site you're on.
+          </p>
+        ) : (
+          <ul className="set-sitelist">
+            {settings.siteContextBlocklist.map((host) => (
+              <li key={host} className="set-site">
+                <span className="set-site-host">{host}</span>
+                <IconButton
+                  icon="x"
+                  label={`Allow context on ${host}`}
+                  size="sm"
+                  onClick={() =>
+                    void updateSettings({
+                      siteContextBlocklist: settings.siteContextBlocklist.filter((h) => h !== host)
+                    })
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
 
       <Section title="Data" icon="download">
