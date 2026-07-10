@@ -1,6 +1,13 @@
 import { createRoot } from 'react-dom/client'
+import '../styles/fonts.css'
+import '../styles/tokens.css'
+import '../styles/base.css'
+import '../styles/ui.css'
 import { PORT_PANEL } from '../lib/messages'
+import { initTheme } from '../lib/theme'
 import App from './App'
+
+initTheme()
 
 function connectPanelPort(): void {
   try {
