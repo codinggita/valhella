@@ -6,76 +6,57 @@ import { newId } from '../../lib/db'
 import Icon from '../../ui/Icon'
 import IconButton from '../../ui/IconButton'
 import Menu, { type MenuEntry } from '../../ui/Menu'
-import ContextChip from './ContextChip'
 import ModelPicker from './ModelPicker'
 import { runAgentTask, stopAgent, useAgent } from '../agent'
 import { useStore } from '../store'
 
-function WebSearchToggle() {
-  const webSearch = useStore((s) => s.webSearch)
-  const toggleWebSearch = useStore((s) => s.toggleWebSearch)
-  return (
-    <IconButton
-      icon="globe"
-      label={webSearch ? 'Web search on' : 'Web search off'}
-      active={webSearch}
-      onClick={toggleWebSearch}
-    />
-  )
-}
-
-function QuickActionsMenu() {
-  const settings = useStore((s) => s.settings)
-  const composerText = useStore((s) => s.composerText)
-  const pageReady = useStore((s) => s.pageContext.status === 'ready')
-  const streaming = useStore((s) => s.streaming !== null)
-  const send = useStore((s) => s.send)
-  const setComposerText = useStore((s) => s.setComposerText)
-  if (!settings) return null
-  const hasTarget = composerText.trim().length > 0 || pageReady
-  const entries: MenuEntry[] = [
-    { title: composerText.trim() ? 'Act on your draft' : pageReady ? 'Act on this page' : 'Quick actions' },
-    ...resolveActions(settings).map((a) => ({
-      id: a.id,
-      label: a.name,
-      icon: a.icon,
-      disabled: !hasTarget || streaming
-    }))
-  ]
+function ModeMenu() {
+  const agentMode = useStore((s) => s.agentMode)
+  const setAgentMode = useStore((s) => s.setAgentMode)
   return (
     <Menu
-      entries={entries}
-      onSelect={(id) => {
-        const action = resolveActions(settings).find((a) => a.id === id)
-        if (!action || streaming || !hasTarget) return
-        const draft = composerText.trim()
-        if (draft) {
-          setComposerText('')
-          void send(`${action.instruction}\n\n<text>\n${draft}\n</text>`)
-        } else {
-          void send(action.instruction)
-        }
-      }}
+      entries={[
+        { id: 'chat', label: 'Chat', sub: 'Ask about the page or anything', icon: 'chat', checked: !agentMode },
+        { id: 'act', label: 'Act', sub: 'Let Briefly operate the page', icon: 'bolt', checked: agentMode }
+      ]}
+      onSelect={(id) => setAgentMode(id === 'act')}
       trigger={(p) => (
         <button
           ref={p.ref}
           onClick={p.onClick}
           aria-expanded={p['aria-expanded']}
           aria-haspopup={p['aria-haspopup']}
-          className="iconbtn"
-          aria-label="Quick actions"
-          disabled={!hasTarget}
+          className="picker picker-mode"
+          aria-label="Switch between Chat and Act"
         >
-          <Icon name="sparkle" size={15} />
+          <Icon name={agentMode ? 'bolt' : 'chat'} size={13} />
+          {agentMode ? 'Act' : 'Chat'}
+          <Icon name="chevron-down" size={12} />
         </button>
       )}
     />
   )
 }
 
-function AttachMenu({ onNotice }: { onNotice: (text: string) => void }) {
+function PlusMenu({ onNotice }: { onNotice: (text: string) => void }) {
+  const settings = useStore((s) => s.settings)
   const addAttachment = useStore((s) => s.addAttachment)
+  const webSearch = useStore((s) => s.webSearch)
+  const toggleWebSearch = useStore((s) => s.toggleWebSearch)
+  const composerText = useStore((s) => s.composerText)
+  const pageStatus = useStore((s) => s.pageContext.status)
+  const streaming = useStore((s) => s.streaming !== null)
+  const send = useStore((s) => s.send)
+  const setComposerText = useStore((s) => s.setComposerText)
+  const addPageContext = useStore((s) => s.addPageContext)
   const fileRef = useRef<HTMLInputElement>(null)
+  if (!settings) return null
+
+  const draft = composerText.trim()
+  const pageReady = pageStatus === 'ready'
+  const hasTarget = draft.length > 0 || pageReady
+  const canCapture = pageStatus !== 'none' && pageStatus !== 'unreadable'
+  const actions = resolveActions(settings)
 
   const attachBlob = async (blob: Blob) => {
     try {
@@ -96,16 +77,35 @@ function AttachMenu({ onNotice }: { onNotice: (text: string) => void }) {
     }
   }
 
+  const runAction = (id: string) => {
+    const action = actions.find((a) => `qa:${a.id}` === id)
+    if (!action || streaming || !hasTarget) return
+    if (draft) {
+      setComposerText('')
+      void send(`${action.instruction}\n\n<text>\n${draft}\n</text>`)
+    } else {
+      addPageContext()
+      void send(action.instruction)
+    }
+  }
+
+  const entries: MenuEntry[] = [{ id: 'upload', label: 'Attach image…', icon: 'image' }]
+  if (canCapture) entries.push({ id: 'capture', label: 'Capture this page', icon: 'camera' })
+  entries.push({ id: 'websearch', label: 'Web search', icon: 'globe', checked: webSearch })
+  if (hasTarget) {
+    entries.push({ sep: true }, { title: draft ? 'Act on your draft' : 'Act on this page' })
+    for (const a of actions) entries.push({ id: `qa:${a.id}`, label: a.name, icon: a.icon })
+  }
+
   return (
     <>
       <Menu
-        entries={[
-          { id: 'upload', label: 'Attach image…', icon: 'image' },
-          { id: 'capture', label: 'Capture this page', icon: 'camera' }
-        ]}
+        entries={entries}
         onSelect={(id) => {
           if (id === 'upload') fileRef.current?.click()
           else if (id === 'capture') void capture()
+          else if (id === 'websearch') toggleWebSearch()
+          else if (id.startsWith('qa:')) runAction(id)
         }}
         trigger={(p) => (
           <button
@@ -114,9 +114,9 @@ function AttachMenu({ onNotice }: { onNotice: (text: string) => void }) {
             aria-expanded={p['aria-expanded']}
             aria-haspopup={p['aria-haspopup']}
             className="iconbtn"
-            aria-label="Add an image"
+            aria-label="Add attachment or run an action"
           >
-            <Icon name="image" size={15} />
+            <Icon name="plus" size={18} />
           </button>
         )}
       />
@@ -161,8 +161,6 @@ export default function Composer() {
   const editing = useStore((s) => s.editing)
   const hasAttachments = useStore((s) => s.attachments.length > 0)
   const agentMode = useStore((s) => s.agentMode)
-  const setAgentMode = useStore((s) => s.setAgentMode)
-  const model = useStore((s) => s.model)
   const send = useStore((s) => s.send)
   const stop = useStore((s) => s.stop)
   const cancelEdit = useStore((s) => s.cancelEdit)
@@ -182,7 +180,7 @@ export default function Composer() {
     const ta = taRef.current
     if (!ta) return
     ta.style.height = 'auto'
-    ta.style.height = `${Math.min(ta.scrollHeight, 168)}px`
+    ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`
     if (overlayRef.current) overlayRef.current.scrollTop = ta.scrollTop
   }, [composerText, interim])
 
@@ -226,7 +224,7 @@ export default function Composer() {
         setDictating(false)
         setInterim('')
         if (code === 'not-allowed') {
-          setNotice('Microphone is blocked — allow it from the setup page.')
+          setNotice("Microphone is blocked — allow it from Briefly's settings.")
           setNoticeAction('setup')
         } else if (code === 'network') {
           setNotice('Dictation needs a connection.')
@@ -267,9 +265,9 @@ export default function Composer() {
           {noticeAction === 'setup' && (
             <button
               className="ctx-link"
-              onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL('src/onboarding/index.html') })}
+              onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL('src/settings/index.html') })}
             >
-              Open setup
+              Open settings
             </button>
           )}
           <IconButton
@@ -284,16 +282,13 @@ export default function Composer() {
         </div>
       )}
       <div className="composer-box">
-        {!agentMode && <ContextChip />}
         {!agentMode && <AttachmentTray />}
         <div className="composer-inputwrap">
           <textarea
             ref={taRef}
             className="composer-input"
             rows={1}
-            placeholder={
-              dictating ? 'Listening…' : agentMode ? 'Tell Briefly what to do in your browser…' : 'Ask Briefly…'
-            }
+            placeholder={dictating ? '' : agentMode ? 'Tell Briefly what to do in your browser…' : 'Ask Briefly…'}
             value={composerText}
             readOnly={dictating}
             onChange={(e) => setComposerText(e.target.value)}
@@ -325,62 +320,50 @@ export default function Composer() {
           />
           {dictating && (
             <div ref={overlayRef} className="composer-overlay" aria-hidden="true">
-              <span className="composer-overlay-final">{composerText}</span>
-              <span className="composer-overlay-interim">{interim ? ` ${interim.trim()}` : ''}</span>
+              {composerText || interim ? (
+                <>
+                  <span className="composer-overlay-final">{composerText}</span>
+                  <span className="composer-overlay-interim">{interim ? ` ${interim.trim()}` : ''}</span>
+                </>
+              ) : (
+                <span className="composer-listening">
+                  <span className="composer-listening-dot" />
+                  Listening…
+                </span>
+              )}
             </div>
           )}
         </div>
         <div className="composer-row">
-          <div className="modeseg" role="radiogroup" aria-label="Mode">
-            <button
-              className={`modeseg-btn${!agentMode ? ' on' : ''}`}
-              role="radio"
-              aria-checked={!agentMode}
-              onClick={() => setAgentMode(false)}
-            >
-              <Icon name="chat" size={12} />
-              Chat
-            </button>
-            <button
-              className={`modeseg-btn${agentMode ? ' on' : ''}`}
-              role="radio"
-              aria-checked={agentMode}
-              onClick={() => setAgentMode(true)}
-            >
-              <Icon name="bolt" size={12} />
-              Act
-            </button>
+          <div className="composer-controls">
+            {!agentMode && <PlusMenu onNotice={setNotice} />}
+            <ModeMenu />
+            <ModelPicker />
           </div>
-          <ModelPicker />
-          <span className="composer-spacer" />
-          {!agentMode && <QuickActionsMenu />}
-          {!agentMode && <AttachMenu onNotice={setNotice} />}
-          {!agentMode && <WebSearchToggle />}
-          <IconButton
-            icon="mic"
-            label={dictating ? 'Stop dictation' : 'Dictate'}
-            active={dictating}
-            className={dictating ? 'mic-live' : undefined}
-            onClick={toggleMic}
-          />
-          {busy ? (
-            <button
-              className="send send-stop"
-              onClick={agentRunning ? stopAgent : stop}
-              aria-label={agentRunning ? 'Stop the agent' : 'Stop generating'}
-            >
-              <Icon name="stop" size={14} />
-            </button>
-          ) : (
-            <button className="send" onClick={doSend} disabled={!canSend} aria-label="Send">
-              <Icon name="arrow-up" size={16} />
-            </button>
-          )}
+          <div className="composer-tools">
+            <IconButton
+              icon="mic"
+              label={dictating ? 'Stop dictation' : 'Dictate'}
+              active={dictating}
+              className={dictating ? 'mic-live' : undefined}
+              onClick={toggleMic}
+            />
+            {busy ? (
+              <button
+                className="send send-stop"
+                onClick={agentRunning ? stopAgent : stop}
+                aria-label={agentRunning ? 'Stop the agent' : 'Stop generating'}
+              >
+                <Icon name="stop" size={14} />
+              </button>
+            ) : (
+              <button className="send" onClick={doSend} disabled={!canSend} aria-label="Send">
+                <Icon name="arrow-up" size={16} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-      {agentMode && model !== 'claude-opus-4-8' && (
-        <p className="composer-hint">Tip: Opus 4.8 is the strongest pick for multi-step tasks.</p>
-      )}
     </div>
   )
 }
